@@ -1,0 +1,23 @@
+{
+  "name": "translachat",
+  "version": "1.0.0",
+  "description": "CLI translation chat - real-time bilingual messaging with TranslateGemma",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yanagizawa-naoto/translachat.git"
+  },
+  "author": "yanagizawa-naoto",
+  "license": "MIT",
+  "keywords": ["chat", "translation", "japanese", "korean", "cli", "tui"],
+  "bin": {
+    "translachat": "./bin/translachat.js"
+  },
+  "scripts": {
+    "start": "node bin/translachat.js"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81",
+    "commander": "^13.1.0",
+    "ws": "^8.18.0"
+  }
+}
