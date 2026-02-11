@@ -8,6 +8,36 @@
 
 const blessed = require('blessed');
 
+/**
+ * Get display width of a string, accounting for CJK double-width characters.
+ */
+function strWidth(s) {
+  if (blessed.unicode && blessed.unicode.strWidth) {
+    return blessed.unicode.strWidth(s);
+  }
+  // Fallback: count CJK chars as 2, others as 1
+  let w = 0;
+  for (const ch of s) {
+    const code = ch.codePointAt(0);
+    if (
+      (code >= 0x1100 && code <= 0x115f) ||
+      (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe10 && code <= 0xfe6f) ||
+      (code >= 0xff01 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x20000 && code <= 0x2fffd) ||
+      (code >= 0x30000 && code <= 0x3fffd)
+    ) {
+      w += 2;
+    } else {
+      w += 1;
+    }
+  }
+  return w;
+}
+
 class ChatUI {
   constructor(myName, myLang) {
     this.myName = myName;
@@ -154,12 +184,12 @@ class ChatUI {
       if (msg.type === 'own') {
         // Right-aligned, green
         const label = `${msg.name}`;
-        const padLabel = ' '.repeat(Math.max(0, width - label.length)) + label;
+        const padLabel = ' '.repeat(Math.max(0, width - strWidth(label))) + label;
         lines.push(`{green-fg}${padLabel}{/green-fg}`);
 
         const msgLines = this._wrapText(msg.text, width - 2);
         for (const line of msgLines) {
-          const padded = ' '.repeat(Math.max(0, width - line.length)) + line;
+          const padded = ' '.repeat(Math.max(0, width - strWidth(line))) + line;
           lines.push(`{green-bg}{black-fg} ${padded} {/black-fg}{/green-bg}`);
         }
         lines.push('');
@@ -170,7 +200,7 @@ class ChatUI {
         // Translated text (white)
         const transLines = this._wrapText(msg.translatedText, width - 2);
         for (const line of transLines) {
-          lines.push(`{white-bg}{black-fg} ${line}${' '.repeat(Math.max(0, width - line.length))} {/black-fg}{/white-bg}`);
+          lines.push(`{white-bg}{black-fg} ${line}${' '.repeat(Math.max(0, width - strWidth(line)))} {/black-fg}{/white-bg}`);
         }
 
         // Original text (gray, smaller)
@@ -182,7 +212,7 @@ class ChatUI {
         }
         lines.push('');
       } else if (msg.type === 'system') {
-        const pad = Math.max(0, Math.floor((width - msg.text.length) / 2));
+        const pad = Math.max(0, Math.floor((width - strWidth(msg.text)) / 2));
         lines.push(`{yellow-fg}${' '.repeat(pad)}--- ${msg.text} ---{/yellow-fg}`);
         lines.push('');
       }
@@ -197,13 +227,21 @@ class ChatUI {
   _wrapText(text, maxWidth) {
     if (!text) return [''];
     const lines = [];
-    let remaining = text;
-    while (remaining.length > maxWidth) {
-      lines.push(remaining.slice(0, maxWidth));
-      remaining = remaining.slice(maxWidth);
+    let line = '';
+    let lineW = 0;
+    for (const ch of text) {
+      const chW = strWidth(ch);
+      if (lineW + chW > maxWidth) {
+        lines.push(line);
+        line = ch;
+        lineW = chW;
+      } else {
+        line += ch;
+        lineW += chW;
+      }
     }
-    if (remaining) lines.push(remaining);
-    return lines;
+    if (line) lines.push(line);
+    return lines.length ? lines : [''];
   }
 
   destroy() {
