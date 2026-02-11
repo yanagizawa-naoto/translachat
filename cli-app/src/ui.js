@@ -47,8 +47,11 @@ class ChatUI {
 
     this.screen = blessed.screen({
       smartCSR: true,
+      fullUnicode: true,
       title: `TranslaChat - ${myName} (${myLang})`,
     });
+
+    this._inputBuffer = '';
 
     // Header bar
     this.header = blessed.box({
@@ -75,30 +78,18 @@ class ChatUI {
       tags: true,
     });
 
-    // Input area
-    this.inputBar = blessed.box({
-      parent: this.screen,
-      bottom: 1,
-      left: 0,
-      width: '100%',
-      height: 1,
-      style: { fg: 'white', bg: '#333' },
-    });
-
-    this.input = blessed.textbox({
+    // Input display (not a textbox - we handle input ourselves)
+    this.inputBox = blessed.box({
       parent: this.screen,
       bottom: 0,
       left: 0,
       width: '100%',
       height: 1,
-      inputOnFocus: true,
-      style: {
-        fg: 'white',
-        bg: '#222',
-      },
+      content: ' > ',
+      style: { fg: 'white', bg: '#222' },
     });
 
-    // Status bar (between chat and input)
+    // Status bar
     this.statusBar = blessed.box({
       parent: this.screen,
       bottom: 1,
@@ -109,26 +100,37 @@ class ChatUI {
       style: { fg: 'gray', bg: '#111' },
     });
 
-    // Key bindings
-    this.screen.key(['C-c'], () => {
-      process.exit(0);
-    });
+    // Handle all input via screen keypress (works with CJK/IME)
+    this.screen.on('keypress', (ch, key) => {
+      if (key && key.ctrl && key.name === 'c') {
+        process.exit(0);
+      }
 
-    this.input.key(['escape'], () => {
-      this.input.focus();
-    });
+      if (key && (key.name === 'enter' || key.name === 'return')) {
+        const text = this._inputBuffer.trim();
+        this._inputBuffer = '';
+        this._updateInputDisplay();
+        if (text && this.onSend) {
+          this.onSend(text);
+        }
+        return;
+      }
 
-    this.input.on('submit', (value) => {
-      const text = value.trim();
-      this.input.clearValue();
-      this.input.focus();
-      this.screen.render();
-      if (text && this.onSend) {
-        this.onSend(text);
+      if (key && key.name === 'backspace') {
+        const chars = [...this._inputBuffer];
+        chars.pop();
+        this._inputBuffer = chars.join('');
+        this._updateInputDisplay();
+        return;
+      }
+
+      // Regular character input (including CJK)
+      if (ch && !key.ctrl && !key.meta) {
+        this._inputBuffer += ch;
+        this._updateInputDisplay();
       }
     });
 
-    this.input.focus();
     this.screen.render();
   }
 
@@ -173,6 +175,11 @@ class ChatUI {
       this.statusBar.setContent(' Type message and press Enter to send. Ctrl+C to quit.');
     }
     this.statusBar.style.tags = true;
+    this.screen.render();
+  }
+
+  _updateInputDisplay() {
+    this.inputBox.setContent(` > ${this._inputBuffer}`);
     this.screen.render();
   }
 
