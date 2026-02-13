@@ -74,7 +74,6 @@ class ChatUI {
       scrollable: true,
       alwaysScroll: true,
       scrollbar: { ch: '|', style: { fg: 'cyan' } },
-      mouse: true,
       tags: true,
     });
 
@@ -104,6 +103,18 @@ class ChatUI {
     this.screen.on('keypress', (ch, key) => {
       if (key && key.ctrl && key.name === 'c') {
         process.exit(0);
+      }
+
+      // Scroll chat with Page Up/Down
+      if (key && key.name === 'pageup') {
+        this.chatBox.scroll(-5);
+        this.screen.render();
+        return;
+      }
+      if (key && key.name === 'pagedown') {
+        this.chatBox.scroll(5);
+        this.screen.render();
+        return;
       }
 
       if (key && (key.name === 'enter' || key.name === 'return')) {
