@@ -131,6 +131,11 @@ class ChatUI {
       }
     });
 
+    // Reposition cursor after every render so IME window appears at input line
+    this.screen.on('render', () => {
+      this._positionCursor();
+    });
+
     this.screen.render();
   }
 
@@ -181,6 +186,14 @@ class ChatUI {
   _updateInputDisplay() {
     this.inputBox.setContent(` > ${this._inputBuffer}`);
     this.screen.render();
+  }
+
+  _positionCursor() {
+    // Position terminal cursor at end of input text so IME window appears there
+    const cursorX = 3 + strWidth(this._inputBuffer); // " > " = 3 chars
+    const cursorY = this.screen.rows - 1;             // bottom row
+    this.screen.program.cup(cursorY, cursorX);
+    this.screen.program.showCursor();
   }
 
   _renderMessages() {
