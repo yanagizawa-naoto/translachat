@@ -200,32 +200,37 @@ class ChatUI {
     const width = this.chatBox.width - 2;
     let lines = [];
 
+    const maxBubble = Math.floor(width * 0.7); // Bubble max 70% of width
+
     for (const msg of this._messages) {
       if (msg.type === 'own') {
-        // Right-aligned, green
-        const label = `${msg.name}`;
-        const padLabel = ' '.repeat(Math.max(0, width - strWidth(label))) + label;
-        lines.push(`{green-fg}${padLabel}{/green-fg}`);
+        // Right-aligned name
+        const label = msg.name;
+        lines.push(`{green-fg}${' '.repeat(Math.max(0, width - strWidth(label)))}${label}{/green-fg}`);
 
-        const msgLines = this._wrapText(msg.text, width - 2);
+        // Right-aligned compact bubble
+        const msgLines = this._wrapText(msg.text, maxBubble - 2);
         for (const line of msgLines) {
-          const padded = ' '.repeat(Math.max(0, width - strWidth(line))) + line;
-          lines.push(`{green-bg}{black-fg} ${padded} {/black-fg}{/green-bg}`);
+          const bubble = ` ${line} `;
+          const bubbleW = strWidth(bubble);
+          const pad = ' '.repeat(Math.max(0, width - bubbleW));
+          lines.push(`${pad}{green-bg}{black-fg}${bubble}{/black-fg}{/green-bg}`);
         }
         lines.push('');
       } else if (msg.type === 'peer') {
-        // Left-aligned
+        // Left-aligned name
         lines.push(`{cyan-fg}${msg.name}{/cyan-fg}`);
 
-        // Translated text (white)
-        const transLines = this._wrapText(msg.translatedText, width - 2);
+        // Left-aligned compact bubble
+        const transLines = this._wrapText(msg.translatedText, maxBubble - 2);
         for (const line of transLines) {
-          lines.push(`{white-bg}{black-fg} ${line}${' '.repeat(Math.max(0, width - strWidth(line)))} {/black-fg}{/white-bg}`);
+          const bubble = ` ${line} `;
+          lines.push(`{white-bg}{black-fg}${bubble}{/black-fg}{/white-bg}`);
         }
 
-        // Original text (gray, smaller)
+        // Original text (gray)
         if (msg.originalText && msg.originalText !== msg.translatedText) {
-          const origLines = this._wrapText(msg.originalText, width - 2);
+          const origLines = this._wrapText(msg.originalText, maxBubble - 2);
           for (const line of origLines) {
             lines.push(`{gray-fg}  ${line}{/gray-fg}`);
           }
