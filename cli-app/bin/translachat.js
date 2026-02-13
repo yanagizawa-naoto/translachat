@@ -3,115 +3,102 @@
  * TranslaChat - CLI translation chat application.
  *
  * Usage:
- *   translachat host --lang ja --name Naoto
- *   translachat join --lang ko --host localhost:3000 --name MinJi
+ *   translachat create --lang ja --name Naoto --server https://app.yuuma.dev/translachat
+ *   translachat join --code ABC123 --lang ko --name MinJi --server https://app.yuuma.dev/translachat
  */
 
 const { Command } = require('commander');
 const ChatUI = require('../src/ui');
-const ChatServer = require('../src/server');
 const ChatClient = require('../src/client');
-const { translate } = require('../src/translator');
-const {
-  MessageType,
-  createJoinMessage,
-  createChatMessage,
-} = require('../src/protocol');
 
-const DEFAULT_PORT = 3000;
+const DEFAULT_SERVER = process.env.TRANSLACHAT_SERVER || 'http://localhost:3000';
 
 const program = new Command();
 
 program
   .name('translachat')
-  .description('Real-time translation chat between Japanese and Korean')
+  .description('Real-time translation chat')
   .version('1.0.0');
 
 program
-  .command('host')
-  .description('Host a chat room')
-  .requiredOption('--lang <lang>', 'Your language code (ja/ko)')
+  .command('create')
+  .description('Create a new chat room')
+  .requiredOption('--lang <lang>', 'Your language code (ja/ko/en/zh/...)')
   .requiredOption('--name <name>', 'Your display name')
-  .option('--port <port>', 'WebSocket port', String(DEFAULT_PORT))
-  .action(hostAction);
+  .option('--server <url>', 'Server URL', DEFAULT_SERVER)
+  .action(createAction);
 
 program
   .command('join')
   .description('Join a chat room')
-  .requiredOption('--lang <lang>', 'Your language code (ja/ko)')
+  .requiredOption('--code <code>', 'Room invite code')
+  .requiredOption('--lang <lang>', 'Your language code (ja/ko/en/zh/...)')
   .requiredOption('--name <name>', 'Your display name')
-  .requiredOption('--host <host>', 'Host address (e.g., localhost:3000)')
+  .option('--server <url>', 'Server URL', DEFAULT_SERVER)
   .action(joinAction);
 
-async function hostAction(opts) {
-  const { lang, name, port: portStr } = opts;
-  const port = parseInt(portStr, 10);
-  const server = new ChatServer(port);
+async function createAction(opts) {
+  const { lang, name, server } = opts;
+  const basePath = getBasePath(server);
 
   const ui = new ChatUI(name, lang);
-  ui.addSystemMessage(`Starting server on port ${port}...`);
+  ui.addSystemMessage('Creating room...');
 
   try {
-    await server.start();
-    ui.addSystemMessage(`Server started. Waiting for connections on port ${port}`);
+    const res = await httpPost(`${server}/api/rooms`);
+    const { code } = JSON.parse(res);
+    ui.addSystemMessage(`Room created! Invite code: ${code}`);
+    ui.addSystemMessage(`Share: translachat join --code ${code} --lang <lang> --name <name>`);
+    await connectAndChat(ui, server, basePath, code, name, lang);
   } catch (err) {
-    ui.addSystemMessage(`Failed to start server: ${err.message}`);
-    return;
+    ui.addSystemMessage(`Failed to create room: ${err.message}`);
   }
-
-  // Handle incoming messages from peers
-  server.onMessage = async (msg) => {
-    if (msg.type === MessageType.CHAT) {
-      await handleIncomingChat(ui, lang, msg);
-    }
-  };
-
-  server.onPeerJoin = (peerName, peerLang) => {
-    ui.addSystemMessage(`${peerName} (${peerLang}) joined`);
-  };
-
-  server.onPeerLeave = (peerName) => {
-    ui.addSystemMessage(`${peerName} left`);
-  };
-
-  // Handle outgoing messages
-  ui.onSend = (text) => {
-    ui.addOwnMessage(name, text);
-    const raw = createChatMessage(name, lang, text);
-    server.send(raw);
-  };
-
-  process.on('SIGINT', () => {
-    server.close();
-    ui.destroy();
-    process.exit(0);
-  });
 }
 
 async function joinAction(opts) {
-  const { lang, name, host } = opts;
-  const wsUrl = `ws://${host}`;
-  const client = new ChatClient(wsUrl);
+  const { code, lang, name, server } = opts;
+  const basePath = getBasePath(server);
 
   const ui = new ChatUI(name, lang);
-  ui.addSystemMessage(`Connecting to ${host}...`);
+  ui.addSystemMessage(`Joining room ${code.toUpperCase()}...`);
 
   try {
-    await client.connect();
-    ui.addSystemMessage(`Connected to ${host}`);
-    // Send join message
-    client.send(createJoinMessage(name, lang));
+    const res = await httpGet(`${server}/api/rooms/${code.toUpperCase()}`);
+    const { exists } = JSON.parse(res);
+    if (!exists) {
+      ui.addSystemMessage('Room not found');
+      return;
+    }
+    await connectAndChat(ui, server, basePath, code.toUpperCase(), name, lang);
   } catch (err) {
-    ui.addSystemMessage(`Failed to connect: ${err.message}`);
-    return;
+    ui.addSystemMessage(`Failed to join room: ${err.message}`);
   }
+}
 
-  // Handle incoming messages
-  client.onMessage = async (msg) => {
-    if (msg.type === MessageType.CHAT) {
-      await handleIncomingChat(ui, lang, msg);
-    } else if (msg.type === MessageType.SYSTEM) {
+async function connectAndChat(ui, serverUrl, basePath, code, name, lang) {
+  const wsUrl = serverUrl.replace(/^http/, 'ws') + '/ws';
+  const client = new ChatClient(wsUrl);
+
+  client.onMessage = (msg) => {
+    if (msg.type === 'system') {
       ui.addSystemMessage(msg.text);
+    } else if (msg.type === 'translated') {
+      const isOwn = msg.name === name && msg.lang === lang;
+      const translatedText = msg.translations[lang] || msg.originalText;
+      const showOriginal = msg.lang !== lang;
+
+      if (isOwn) {
+        ui.addOwnMessage(msg.name, msg.originalText);
+      } else {
+        ui.addPeerMessage(
+          msg.name,
+          translatedText,
+          showOriginal ? msg.originalText : null,
+          msg.lang
+        );
+      }
+    } else if (msg.type === 'error') {
+      ui.addSystemMessage(`Error: ${msg.text}`);
     }
   };
 
@@ -119,10 +106,18 @@ async function joinAction(opts) {
     ui.addSystemMessage('Disconnected from server');
   };
 
+  try {
+    await client.connect();
+    // Send join
+    client.send(JSON.stringify({ type: 'join', code, name, lang }));
+  } catch (err) {
+    ui.addSystemMessage(`Connection failed: ${err.message}`);
+    return;
+  }
+
   // Handle outgoing messages
   ui.onSend = (text) => {
-    ui.addOwnMessage(name, text);
-    client.send(createChatMessage(name, lang, text));
+    client.send(JSON.stringify({ type: 'chat', text }));
   };
 
   process.on('SIGINT', () => {
@@ -132,34 +127,35 @@ async function joinAction(opts) {
   });
 }
 
-/**
- * Handle an incoming chat message: translate if needed, then display.
- */
-async function handleIncomingChat(ui, myLang, msg) {
-  const { name: senderName, lang: senderLang, text: originalText } = msg;
-
-  if (senderLang === myLang) {
-    // Same language, no translation needed
-    ui.addPeerMessage(senderName, originalText, null, senderLang);
-    return;
-  }
-
-  // Translate from sender's language to my language
-  ui.setTranslating(true);
+function getBasePath(serverUrl) {
   try {
-    const translatedText = await translate(originalText, senderLang, myLang);
-    ui.addPeerMessage(senderName, translatedText, originalText, senderLang);
-  } catch (err) {
-    // Show original with error note
-    ui.addPeerMessage(
-      senderName,
-      `[Translation error: ${err.message}] ${originalText}`,
-      originalText,
-      senderLang
-    );
-  } finally {
-    ui.setTranslating(false);
+    const url = new URL(serverUrl);
+    return url.pathname.endsWith('/') ? url.pathname : url.pathname + '/';
+  } catch {
+    return '/';
   }
+}
+
+function httpPost(url) {
+  return httpRequest(url, 'POST');
+}
+
+function httpGet(url) {
+  return httpRequest(url, 'GET');
+}
+
+function httpRequest(url, method) {
+  const mod = url.startsWith('https') ? require('https') : require('http');
+  return new Promise((resolve, reject) => {
+    const req = mod.request(url, { method }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => resolve(data));
+    });
+    req.on('error', reject);
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout')); });
+    req.end();
+  });
 }
 
 program.parse();
